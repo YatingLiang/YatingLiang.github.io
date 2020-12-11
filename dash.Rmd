@@ -1,0 +1,455 @@
+---
+title: "Airplane Crash Analysis Project Dashboard"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE,warning=FALSE, message=FALSE}
+library(flexdashboard)
+library(tidyverse)
+library(lubridate)
+library(plotly)
+library(gridExtra)
+library(usmap)
+library(igraph)
+library(networkD3)
+library(tidytext)
+library(tm)
+library(SnowballC)
+library(wordcloud)
+library(maps)
+library(dygraphs)
+```
+
+```{r, message = FALSE, warning = FALSE, echo = F}
+# read data
+df <- read.csv('crashes.csv', encoding='UTF-8', stringsAsFactors = FALSE)
+df <- as_tibble(df)
+# replace NA with 0
+df[is.na(df)] <- 0
+colnames(df) <- c('Date', 'Time', 'Location', 'Operator', 'Flight', 'Route', 'Type', 
+                  'Registration', 'cn/ln', 'Total_Aboard', 'Passengers_Aboard', 
+                  'Crew_Aboard', 'Total_Fatalities', 'Passengers_Fatalities', 
+                  'Crew_Fatalities', 'Ground', 'Summary')
+#datetime format
+df$Date <- mdy(df$Date)
+df$Time <- hm(df$Time)
+# get year, month, day, weekday
+df$Year <- year(df$Date)
+df$Month <- as.factor(month(df$Date))
+df$Day <- as.factor(day(df$Date))
+df$Weekday <- as.factor(wday(df$Date))
+# count
+year_wise <- df %>% count(Year)
+day_wise <- df %>% count(Day) 
+week_day_wise <- df %>% count(Weekday)
+month_wise <- df %>% count(Month)
+# clean location data
+states_list <- c('Alabama','Alaska','Alaksa','Arizona','Arkansas',"California",
+                 "Colorado", "Connecticut","Delaware","Florida","Georgia",
+                 "Hawaii","Idaho","Illinois", "Indiana","Iowa","Kansas",
+                 "Kentucky","Louisiana","Maine","Maryland", "Massachusetts",
+                 "Massachusett", "Michigan","Minnesota","Mississippi","Missouri",
+                 "Montana", "Nebraska","Nevada","New Hampshire","New Jersey",
+                 "New Mexico","New York", "North Carolina","North Dakota","Ohio",
+                 "Oklahoma", "Oklohoma", "Oregon","Pennsylvania", "Rhode Island",
+                 "South Carolina",
+                 "South Dakota",'Tennesee',"Tennessee","Texas","Utah", "Vermont",
+                 'Virginia',"Washington D.C.", "Washington, D.C.", "Washington", 
+                 "West Virginia","Wisconsin","Wyoming",
+                 "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DC", "DE", "FL", "GA",
+                 "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+                 "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",                
+                 "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+                 "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY")
+location <- df %>%
+    select(Location) 
+for(state in states_list) {
+    location <- location %>%
+        mutate(Location = str_replace_all(Location, state, paste(state, ', USA', sep = ''))) %>%
+        mutate(Location = str_replace_all(Location, 'USA.*, ', '')) %>%
+        mutate(Location = str_replace(Location, 'West Virginia, USA,', '')) %>%
+        mutate(Location = str_replace(Location, 'Afghanstan', 'Afghanistan')) %>%
+        mutate(Location = str_replace(Location, 'Airzona|Arazona', 'Arizona')) %>%
+        mutate(Location = str_replace(Location, 'Alakska', 'Alaska')) %>%
+        mutate(Location = str_replace(Location, 'Cailifornia|Calilfornia', 'California')) %>%
+        mutate(Location = str_replace(Location, 'D.*Congo', 'DR Congo')) %>%
+        mutate(Location = str_replace(Location, 'Domincan Republic', 'Dominican Republic')) %>%
+        mutate(Location = str_replace(Location, 'Hati', 'Haiti')) %>%
+        mutate(Location = str_replace(Location, ' International Airport', '')) %>%
+        mutate(Location = str_replace(Location, 'Morrocco|Morroco', 'Morocco')) %>%
+        mutate(Location = str_replace(Location, 'Phillipines', 'Phillipines')) %>%
+        mutate(Location = str_replace(Location, 'Burma', 'Myanmar')) %>%
+        mutate(Location = str_replace(Location, '([Ss]outhern|[Nn]orthern|[Ww]estern|[Ee]astern) ', ''))}
+country_state <- location %>%
+    select(Location) %>%
+    filter(!str_detect(Location, '[Oo]cean|[Ss]ea|[Cc]hannel|Gulf of')) %>%
+    mutate(Location = str_replace(Location, '(Near|Off|Over) ', '')) %>%
+    mutate(Location = str_replace(Location, 'USA, Australia', 'Australia')) %>%
+    mutate(State_Province = str_replace(Location, '(.*, )?(.*), (.*)', '\\2')) %>%
+    mutate(Country = str_replace(Location, '.*,\\s*', '')) 
+#  count group by  location
+loc <- country_state %>%
+    group_by(Location) %>%
+    summarize(n = n()) %>%
+    arrange(desc(n))
+# count group by State/Province/City
+st <- country_state %>%
+    group_by(State_Province) %>%
+    summarize(n = n()) %>%
+    arrange(desc(n))
+# count group by Country/Region
+cntry <- country_state %>%
+    group_by(Country) %>%
+    summarize(n = n()) %>%
+    arrange(desc(n))
+# count group by states in US
+state_cntry <- country_state %>%
+    group_by(Country, State_Province) %>%
+    summarize(n = n()) %>%
+    arrange(desc(n))
+```
+
+About
+===================================== 
+
+This dashboard displays different level of analysis of Airplane Crashes from 1908 to 2018. It presents analysis of the number of plane crashes by day, month, year, also the number of passengers aboard. It includes analysis of number of plane crashes by different aircraft manufacturers, airline operators and geographical analysis by different countries and different states.
+
+Data for this project come from The Guardian (https://www.kaggle.com/saurograndi/airplane-crashes-since-1908) and it was originally scrapped from The World Bank (https://data.worldbank.org/indicator/IS.AIR.PSGR). The data are separated into three csv files - one for crashes analysis and two others for passengers and departures analysis. The crashes file contains date, time, location, operator, Route, aircraft type, total aboard, crash summary(logs), and etc.
+
+R Studio Flexdashboard was used for creating the dashboard.
+
+
+
+
+Overview
+===================================== 
+Inputs {.sidebar}
+-------------------------------------
+Chart 1 (Top): This histogram shows the historical airplane crashes count from 1908 till now. We can find that the year with most plane crashes is 1946. There is also another peak in year 1989. 
+
+
+Chart 2 (Bottom): The three histograms are the number of airplane crashes by weekday, by month, and by day in all months. We can find that Wednesday has the highest number of crashes, and December has the most crashes. And on the 8th day of the month it has the highest frequency of airplane crashes.
+
+
+Row
+-------------------------------------
+### Number of Airplane Crashes since 1908
+
+```{r, fig.height=7, fig.width=20}
+ggplot(year_wise, aes(x = Year, y = n)) +
+    geom_col(fill = '#f2d0a9') +
+    labs(x = 'Year', y = 'Count of Crashes') +
+    scale_x_continuous(breaks = seq(1908, 2020, 4))+
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),plot.title = element_text(hjust = 0.5), axis.text=element_text(size=10))
+```
+
+### Total Weekday/Monthly/Daily/Monthly Level Analysis of Airplane Crashes
+
+```{r,fig.height=7, fig.width=20}
+m <- ggplot(month_wise, aes(x = Month, y = n)) +
+    geom_col(fill = '#99c1b9', col = 'white') +
+    labs(title = 'Month Crashes', x = 'Day', y = 'Count of Crashes')+
+    theme(plot.title = element_text(hjust = 0.5,size = 15, face = "bold"))
+# weekday
+wd <- ggplot(week_day_wise, aes(x = Weekday, y = n)) +
+    geom_col(fill = '#d88c9a', col = 'white')+
+    labs(title = 'Week Day Crashes', x = 'Day', y = 'Count of Crashes')+
+    theme(plot.title = element_text(hjust = 0.5,size = 15, face = "bold"))
+
+# day wise
+d <- ggplot(day_wise, aes(x = Day, y = n)) +
+    geom_col(fill = '#8e7dbe', col = 'white')+
+    labs(title = 'Day Crashes in all Months', x = 'Day', y = 'Count of Crashes')+
+    theme(plot.title = element_text(hjust = 0.5,size = 15, face = "bold"))
+    
+
+# plot
+grid.arrange(wd,m,d,nrow = 1, widths = c(1,1.5,3))
+```
+
+Exploratory Analysis {data-orientation=rows}
+===================================== 
+
+nputs {.sidebar}
+-------------------------------------
+Chart 1 (Top left): This bar plot shows the top 15 manufacturer that has the most airplane crashes. Doulas has the most crashes of all.
+
+
+Chart 2 (Top right): This bar plot shows the top 15 operaters that has the most airplane crashes. Aeroflot has the most crashes of all. Military - US Force has the second most crashes.
+
+
+Chart 3 (Bottom left): This graph shows the top 15 countries that has the most airplane crashes. We could see that the US is far more than other countries in the world. And it is four times of Russia’s.
+
+
+Chart 4 (Bottom right): From the wordcloud, we can find that “runway”, “engine”, “crew”, “pilot”, “approach” are mentioned most frequently. This might give some insights of the plane crash emergency reasons. The crashes may have been related with runway or engine.
+
+
+
+Row
+-------------------------------------
+### Number of Crashes for Most Frequent Manufacturer
+```{r, fig.width=10, message = FALSE, warning = FALSE, echo = F, results = T}
+#extract/clean/count airplane type 
+airplane_main_type <- df %>%
+    # replace model number by empty strings
+    mutate(main_type = str_replace_all(Type, "[A-Za-z]*-?\\d+-?[A-Za-z]*.*", "")) %>% 
+    count(main_type, sort = TRUE) %>%
+    filter(main_type > 'A') 
+#top 15 frequent Manufacturer
+Manufacturer = ggplot(head(airplane_main_type, 15), aes(reorder(main_type, n), n, fill = n)) +
+    geom_col(fill = '#c9cba3') +
+    geom_text(aes(label = n), hjust = 1.5, colour = "white", size = 4.5, fontface = "bold") +
+    labs(x = 'Manufacturer', y = 'Count of Crashes')+    
+    coord_flip()+
+  theme(plot.title = element_text(hjust = 0.5,size = 15, face = "bold"))
+Manufacturer
+```
+
+### Number of Crashes for Most Frequent Operator
+```{r, fig.width=10,message = FALSE, warning = FALSE, echo = F, results = T}
+#extract operator
+airplane_operator <- df %>%
+    count(Operator, sort = TRUE)
+
+# military vs non-military flights
+yr_military <- df %>%
+    select(Year, Operator) %>%
+    mutate(Is_Military = str_detect(Operator, 'Military|military')) %>%
+    group_by(Year, Is_Military) %>%
+    summarize(n = n())
+options(repr.plot.width = 12, repr.plot.height = 7)
+
+#top 15 frequent Operators
+ggplot(head(airplane_operator, 15), aes(reorder(Operator, n) , n, fill = n))+
+    geom_col(fill = '#aed9e0')+
+    labs( x = 'Operator', y = 'Count of Crashes')+  
+    geom_text(aes(label = n), hjust = 1.5, colour = "white", size = 5, fontface = "bold")+
+    coord_flip()+
+  theme(plot.title = element_text(hjust = 0.5,size = 15, face = "bold"))
+```
+
+Row
+-------------------------------------
+### Number of Crashes in Most Frequent Countries
+
+```{r,fig.width=10}
+ggplot(head(cntry, 15), aes(reorder(Country, n), n)) +
+    geom_bar(stat = "identity", fill = '#e5989b', col = 'white', alpha = 0.8) +
+    labs(x = 'Country', y = 'Count of Crashes') +  
+    geom_text(aes(label = n), hjust = 1.5, colour = "white", size = 5, fontface = "bold")+
+    coord_flip()
+```
+
+### Most Frequently Words Mentioned in Crash Logs
+```{r,fig.width=10, message = FALSE, warning = FALSE, echo = F, results = T}
+text <- Corpus(VectorSource(df$Summary))
+toSpace <- content_transformer(function(x, pattern) gsub(pattern," ",x))
+                               
+airstopword <- c("air", "airlines", "aircraft", "flight", "plane", "crashed") 
+                               
+text <- tm_map(text, toSpace, "/")
+text <- tm_map(text, toSpace, "\\|")
+text <- tm_map(text, toSpace, "@")
+text <- tm_map(text, content_transformer(tolower))
+text <- tm_map(text, removeWords, stopwords("english"))
+text <- tm_map(text, removeWords, airstopword)
+text <- tm_map(text, removePunctuation)
+text <- tm_map(text, removeNumbers)
+text <- tm_map(text, stripWhitespace)  
+                               
+dtm <- TermDocumentMatrix(text)
+m <- as.matrix(dtm)
+s <- sort(rowSums(m), decreasing = TRUE)
+d <- data.frame(word = names(s), freq = s)     
+options(repr.plot.width = 15)
+wordcloud(words = d$word, 
+          freq = d$freq, 
+          max.words = 150, 
+          min.freq = 5, 
+          random.order = FALSE, 
+          rot.per = 0.35, 
+          colors = brewer.pal(8,"Set3"))
+```
+
+Geographic Analysis{data-orientation=rows}
+===================================== 
+
+Inputs {.sidebar}
+-------------------------------------
+Chart 1 (Top): From this map, we can find the around the world, the United States and Russia has higher number of airplane crashes. This might due to they have higher technology level and have airplanes since long ago before other countries.
+
+
+Chart 2 (Bottom Left):  From this US map and the bar plot, we can find that California and Alaska has the highest number of plane crashes. This could happen because California has many airports and Alaska has a higher latitude with many mountains causing difficulty to fly across.
+
+
+
+Row
+-------------------------------------
+### Airplane Crashes around the World 
+
+```{r, fig.height=6, fig.width=17}
+cntry2 <- cntry %>%
+    mutate(m = case_when(
+        n > 200  ~ "200 +",
+        n < 200 & n >= 100 ~ "199 - 100",
+        n < 100 & n >= 50 ~ "99 - 50",
+        n < 50 & n >= 10 ~ "49 - 10",
+        n < 10  ~ "< 10")) %>%
+    mutate(m = factor(m, levels = c("< 10", "49 - 10", "99 - 50", "199 - 100", "200 +")))
+world_map <- map_data("world")
+map_data <- cntry2 %>% 
+    full_join(world_map, by = c('Country' = 'region')) 
+
+# palette
+map_palette = c('#eae2b7','#9ec1a3','#70a9a1','#1f363d',"#0b3954")
+ggplot(map_data, aes(x = long, y = lat, group = group, fill = m)) +
+    geom_polygon(colour = "white") + 
+    labs(x = '', y = '', fill = '') +
+    scale_fill_manual(values = map_palette, na.value = 'whitesmoke') + 
+    theme(legend.position='right', legend.justification = "top",plot.title = element_text(hjust = 0.5,size = 14)) + 
+    guides(fill = guide_legend(reverse = TRUE))
+```
+
+Row
+-------------------------------------
+### Airplane Crashes in each state in the United States
+
+```{r,fig.width=10}
+us_count <- state_cntry %>%
+    filter(Country=='USA') %>%
+    mutate(m = case_when(
+        n > 50  ~ "50 +",
+        n < 50 & n >= 20 ~ "20 - 49",
+        n < 20 & n >= 10 ~ "10 - 19",
+        n < 10 & n >= 5 ~ "5 - 9",
+        n < 5  ~ "< 5")) %>%
+    mutate(m = factor(m, levels = c("< 5", "5 - 9", "10 - 19", "20 - 49", "50 +"))) 
+us_states <- us_map()
+us_map_data <- us_count %>% 
+    full_join(us_states, by = c('State_Province' = 'full'))
+ggplot(us_map_data, aes(x = x, y = y, group = group, fill = m)) +
+    geom_polygon(colour = "white") + 
+    labs(x = '', y = '', fill = '') +
+    scale_fill_manual(values = map_palette, na.value = 'whitesmoke') + 
+    guides(fill = guide_legend(reverse = TRUE))+ 
+    theme(legend.position='right', legend.justification = "top",plot.title = element_text(hjust = 0.5,size = 14))
+```
+
+
+### Airplane Crashes in most frequent state in the US
+
+```{r,fig.width=10}
+#Most 15 frequent States
+ggplot(head(us_count, 15), aes(reorder(State_Province, n), n))+
+    geom_bar(stat = "identity", col = 'white', alpha = 0.8) +
+    geom_col(fill="#6a994e")+
+    labs(x = 'States', y = 'Count of Crashes') +  
+    geom_text(aes(label = n), hjust = 1.5, colour = "white", size = 5, fontface = "bold")+
+    coord_flip()
+```
+
+
+
+Time Series Analysis
+===================================== 
+
+Inputs {.sidebar}
+-------------------------------------
+Chart 1 (Top left): This interactive graph shows the number of flight departures from 1970 to 2017. It has been increasing along the years.
+
+
+Chart 2 (Bottom left): This interactive graph shows the number of passengers carried from 1970 to 2017. It also has been increasing along the years. The trend is very similar to Chart 1.
+
+
+Chart 3 (Right): This interactive graph shows the number of airplane crashes per million departures and the number of people’s death per million departures from 1970 to 2017. It has a decreasing trend, which is good, meaning that airplanes are safer.
+
+
+Row
+-------------------------------------
+### Number of Departures from 1970 to 2017
+```{r,fig.height=7,fig.width=10}
+pasn <- read.csv('passengers_count_long.csv') %>%
+    as_tibble() %>%
+    group_by(Year) %>%
+    summarize(No_of_Passengers=sum(as.numeric(Count)))
+dept <- read.csv('departures_count_long.csv') %>%
+    as_tibble() %>%
+    group_by(Year) %>%
+    summarize(No_of_Departures=sum(Count))
+crash_year <- df %>%
+    select(Year, Total_Fatalities) %>%
+    group_by(Year) %>%
+    summarize(No_of_crashes = n(), 
+              No_of_fatalities = sum(Total_Fatalities))
+temp <- dept %>%
+    left_join(pasn, by = c('Year')) %>%
+    left_join(crash_year, by = c('Year')) %>%
+    mutate(dep_in_million = No_of_Departures/1000000) %>%
+    mutate(pas_in_million = No_of_Passengers/1000000) %>%
+    mutate(crashes_per_mil_dep = No_of_crashes/dep_in_million) %>%
+    mutate(deathes_per_mil_pas = No_of_fatalities/pas_in_million)
+No_of_Departures_ts<-ts(temp$No_of_Departures,frequency = 1,start = c(1970))
+No_of_Passengers_ts<-ts(temp$No_of_Passengers,frequency = 1,start = c(1970))
+
+dygraph(No_of_Departures_ts) %>%
+  dySeries( label = "Departures",color ='#0081a7')%>%
+  dyRangeSelector()
+```
+
+
+### Number of Passengers from 1970 to 2017
+
+```{r,fig.height=7,fig.width=10}
+dygraph(No_of_Passengers_ts,xlab = 'Year') %>%
+  dySeries( label = "Passengers",color='#ff9500')%>%
+  dyRangeSelector()
+```
+
+
+Row
+-------------------------------------
+### Number of Crash and Death per Million Departures
+
+```{r,fig.height=7,fig.width=20}
+
+crashes_per_mil_dep_ts<-ts(temp$crashes_per_mil_dep,frequency = 1,start = c(1970))
+deathes_per_mil_pas_ts<-ts(temp$deathes_per_mil_pas,frequency = 1,start = c(1970))
+C_D_per_mile<-cbind(crashes_per_mil_dep_ts,deathes_per_mil_pas_ts)
+
+dygraph(C_D_per_mile,xlab = 'Year') %>%
+  dySeries("crashes_per_mil_dep_ts", label = "Crash") %>%
+  dySeries("deathes_per_mil_pas_ts", label = "Death") %>%
+  dyOptions(stackedGraph = TRUE) %>%
+  dyRangeSelector(height = 20)
+```
+
+Route Network
+===================================== 
+
+### Flight Route Network
+```{r}
+#extract flight route (takeoff city and destination city) for network analysis
+take_off_dest <- df %>%
+    select('Route') %>%
+    filter(Route!='') %>%
+    filter(str_detect(Route, ' ?- ?')) %>%
+    mutate(Take_Off = str_extract(Route, '[^-]* ?-?')) %>%
+    mutate(Take_Off = str_replace(Take_Off, ' -', ''))%>%
+    mutate(Destination = str_extract(Route, '- ?[^-]*$')) %>%
+    mutate(Destination = str_replace(Destination, '- ?', ''))
+flight_network <- take_off_dest %>% 
+     group_by(Take_Off, Destination) %>%
+     summarize(n = n())
+nodes <- data.frame(name = unique(c(flight_network$Take_Off, flight_network$Destination)))
+nodes$group <- nodes$name %in% flight_network$Take_Off
+links <- data.frame(source = match(flight_network$Take_Off, nodes$name) - 1,
+                    target = match(flight_network$Destination, nodes$name) - 1)
+forceNetwork(Links = links, Nodes = nodes, Source = 'source',
+             Target = 'target', NodeID ="name", Group = "group",
+             opacity = 1, opacityNoHover = 1) 
+```
+
+
