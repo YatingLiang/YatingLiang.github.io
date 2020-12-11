@@ -1,0 +1,113 @@
+---
+title: "networks"
+author: "Yating(Iris) Liang"
+date: "11/8/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### 1. Clean data
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(readxl)
+library(data.table)
+library(igraph)
+library(circlize)
+library(RColorBrewer)
+
+#read in data
+mig = read_xls("data/State_to_State_Migrations_Table_2018.xls")
+#clean data
+#remove useless rows
+df = mig %>% slice(-c(1,2,3,4,5))
+df = df %>% slice(-c(73:81))
+#remove MOE and redundant cols
+df = df %>% select(-c('...2','...3','...4','...5','...6','...7','...8','...9',
+                      '...11','...12','...14','...16','...18','...20',
+                      '...22','...23','...25','...27','...29','...31','...33',
+                      '...34','...36','...38','...40','...42','...44','...45','...47','...49',
+                      '...51','...53','...55','...56','...58','...60','...62',
+                      '...64','...66','...67','...69','...71','...73','...75','...77',
+                      '...78','...80','...82','...84','...86','...88','...89',
+                      '...91','...93','...95','...97','...99','...100','...102',
+                      '...104','...106','...108','...110','...111','...113','...115',
+                      '...117','...119','...121','...122','...123','...124','...125','...126',
+                      '...127','...128','...129','...130'))
+# remove all NA rows
+df1 = df[apply(df, 1, function(df) !all(is.na(df))),]
+df1 = df1 %>% slice(-c(2:3, 31:33, 58))
+# rename cols
+colnames(df1)=df1[1,]
+df1=df1[-1,]
+colnames(df1)[1] <- 'source'
+```
+
+
+```{r}
+library(tidyr)
+# pivot wide to long
+df2 = df1 %>% pivot_longer(cols = -source, names_to = "target", values_to = "count")
+# remove same state to state
+df2 = df2 %>% filter(count !='N/A')
+# filter for Texas, New York, Virginia, and Maryland
+df3 = df2 %>% 
+  filter(source=='Texas' | source=='New York' | source=='Virginia'| source=='Maryland')
+# find the top 10 counts for each source state
+df3$count = as.integer(df3$count)
+df4 = df3 %>% group_by(source) %>%
+  arrange(desc(count),.by_group=TRUE) %>%
+  top_n(10,count)
+head(df4)
+```
+
+### 2. Draw networks - New York, Texas, Virginia, and Maryland
+
+
+```{r}
+library(circlize)
+library(RColorBrewer)
+net <- graph_from_data_frame(d = df4, vertices = unique(c(df4$source, df4$target)), directed = T)
+
+chordDiagram(df4, annotationTrack = "grid", preAllocateTracks = list(track.height = 0.1))
+  circos.trackPlotRegion(track.index = 1, panel.fun = function(x, y) {
+  col = rand_color(50,luminosity = "bright")
+  xlim = get.cell.meta.data("xlim")
+  xplot = get.cell.meta.data("xplot")
+  ylim = get.cell.meta.data("ylim")
+  sector.name = get.cell.meta.data("sector.index")
+  circos.text(mean(xlim), ylim[1], sector.name, facing = "clockwise",
+                niceFacing = TRUE, adj = c(0, 0.5), cex = 0.5)
+}, bg.border = NA)
+ 
+title("Network of State-to-state Migration", cex = 0.1)
+```
+
+```{r, fig.width=10, fig.height=8, warning=FALSE}
+library(igraph)
+g <- graph.data.frame(df4, directed=TRUE)
+# the width of each edge representing the number of people moving between the two states
+E(g)$weight <- df4$count
+#the color of the edge denoting the state of origin
+E(g)[df4$source == 'New York']$color <- "#d55e00"
+E(g)[df4$source == 'Virginia']$color <- "#cc79a7"
+E(g)[df4$source == 'Texas']$color <- "#0072b2"
+E(g)[df4$source == 'Maryland']$color <-"#009e73"
+#plot
+par(bg="#F5F5F5")
+plot(g, layout=layout.circle,
+     edge.width=E(g)$weight*0.0001,
+     vertex.size = 0, 
+     edge.arrow.size=0.8,
+     vertex.label.cex=0.8, 
+     vertex.label.family="Helvetica",
+     vertex.label.font=2,
+     vertex.label.color="black",
+     main = "Network of State-to-state Migration"
+     )
+```
+
