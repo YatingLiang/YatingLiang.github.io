@@ -1,0 +1,11 @@
+---
+title: "Myself and This Website"
+---
+
+<img src="yating.JPG" alt="drawing" width="300"/>
+
+Hello! My name is Yating Liang, I am currently a graduate student at Georgetown University in the Master of Science in Data Science and Analytics program. Prior to Georgetown University, I recieved my Bachelor’s degree in Finance from The Chinese University of Hong Kong, Shenzhen.
+
+I have worked as a Data Analyst intern at Home Depot, where I have have had the pleasure of working to visualize products quality data by charts in Tableau dashboards, and used Python and data mining tool to scrape over 5000 online comments on websites, explored high- frequency words, classified them into 50 attributes, and used NLP techniques to do sentiment analysis on comments, and gave operational advises to quality team and manufacturers.
+
+This website provides an online porfolio of the work I have done in my graduate course ANLY 503 -  Data Visualizations in 2020 Fall. It includes the final project dashboard and the homework submissions from A5 to A7.

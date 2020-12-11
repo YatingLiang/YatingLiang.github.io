@@ -1,0 +1,24 @@
+name: "Online Portfolio"
+navbar:
+  title: "Online Portfolio"
+  left:
+    - text: "Home"
+      href: index.html
+    - text: "Final Project Dashboard"
+      href: dash.html
+    - text: "Homework"
+      menu:
+        - text: "A5: Visualiztion Part1"
+          href: task1.html
+        - text: "A5: Visualiztion Part2"
+          href: task2.html
+        - text: "A5: Visualiztion Part3"
+          href: task3.html
+        - text: "A5: Visualiztion Part4"
+          href: task4.html
+        - text: "A5: Visualiztion Part5"
+          href: task5.html
+        - text: "A6: Geospatial Visualizations"
+          href: geospatial.html
+        - text: "A7: Network Visualizations"
+          href: networks.html
