@@ -1,0 +1,244 @@
+---
+title: "geospatial"
+author: "Yating(Iris) Liang"
+date: "11/8/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(reticulate)
+use_virtualenv("myenv")
+```
+
+### 1. Data extraction (Python)
+
+```{python}
+#####task 1#####
+import pandas as pd
+# Read countypres data
+countypres = pd.read_csv("data/countypres_2000-2016.csv")
+countypres.head(5)
+# select democratic party
+dem = countypres.loc[countypres.party=="democrat",:]
+# proportion of the vote won by the Democratic 
+dem[["won"]] = countypres.loc[:,"candidatevotes"]/countypres.loc[:,"totalvotes"]
+# select year 2008 2012 2006
+dem = dem.loc[dem.year.isin(["2008","2012","2016"]),["year","state","county","FIPS","party","won"]]
+dem = dem.reset_index(drop=True)
+# add zero to 4-digit FIPS code to 5-digit
+dem.FIPS = dem.FIPS.astype(str)
+for i in range(len(dem)):
+    if len(dem.loc[i,"FIPS"][:-2]) == 4:
+        dem.loc[i,"FIPS"] = "0" + dem.loc[i,"FIPS"][:-2]
+    else:
+        dem.loc[i,"FIPS"] = dem.loc[i,"FIPS"][:-2]
+dem.head(5)
+```
+
+
+```{python}
+# Read  unemployment data
+unemployment = pd.read_excel("data/Unemployment.xls", sheet_name="Unemployment Med HH Income", header=0,skiprows=[0,1,2,3,4,5,6])
+# select useful cols
+unemployment = unemployment.loc[:,["FIPStxt","Stabr","area_name","Unemployment_rate_2008","Unemployment_rate_2012","Unemployment_rate_2016"]]
+# pivot wide to long
+unemp = pd.melt(unemployment, id_vars =['FIPStxt',"Stabr","area_name"], value_vars =["Unemployment_rate_2008","Unemployment_rate_2012","Unemployment_rate_2016"]) 
+unemp.rename(columns = {"variable": "year", "value": "unemp_rate", "FIPStxt": "FIPS"}, inplace = True) 
+# only keep year
+unemp.loc[:,"year"] = [unemp.loc[i,"year"][18:] for i in range(len(unemp))]
+unemp.year = unemp.year.astype(int)
+# convert all FIPS to 5-digit
+unemp.FIPS = unemp.FIPS.astype(str)
+for i in range(len(unemp)):
+    if len(unemp.loc[i,"FIPS"]) == 4:
+        unemp.loc[i,"FIPS"] = "0" + unemp.loc[i,"FIPS"]
+    else:
+        unemp.loc[i,"FIPS"] = unemp.loc[i,"FIPS"]
+unemp.head(5)
+```
+
+
+```{python}
+# merge two data and save
+join = dem.merge(unemp, how='inner', on = ['year','FIPS'])
+join.head(5)
+join.to_csv("joined.csv")
+```
+
+### 2. The proportion of the vote won by Democratic in each county for each of the three elections (R)
+
+```{r}
+#####task2#####
+library(rgdal)
+library(sf)
+library(tmap)
+library(tmaptools)
+usmap = readOGR("tl_2019_us_county-1","tl_2019_us_county")
+joindata = read.csv("joined.csv")
+joindata$FIPS = as.character(joindata$FIPS)
+for(i in 1:nrow(joindata)){
+  if(nchar(joindata[i,"FIPS"]) == 4){
+    joindata[i,"FIPS"] = paste("0",joindata[i,"FIPS"],sep="")
+  }
+}
+# attach 2-digit and 3-digit
+usmap$FIPS <- paste(usmap$STATEFP,usmap$COUNTYFP,sep = "")
+# subset by year
+usmap2008 <- merge(usmap,subset(joindata,year == 2008), by="FIPS",all.x=TRUE)
+usmap2008 = usmap2008[!(is.na(usmap2008$won)),]
+usmap2012 <- merge(usmap,subset(joindata,year == 2012), by="FIPS",all.x=TRUE)
+usmap2012 = usmap2012[!(is.na(usmap2012$won)),]
+usmap2016 <- merge(usmap,subset(joindata,year == 2016), by="FIPS",all.x=TRUE)
+usmap2016 = usmap2016[!(is.na(usmap2016$won)),]
+```
+
+```{r}
+# subset by state TX
+tx2008 = subset(usmap2008, state=="Texas")
+tx2012 = subset(usmap2012, state=="Texas")
+tx2016 = subset(usmap2016, state=="Texas")
+
+tmap_mode("plot")
+txplot2008 <- tm_shape(tx2008) +
+  tm_fill("won",palette = "PRGn",
+          title="Percent of Votes for Democratic 2008") +
+  tm_borders(alpha=.5) +
+  tm_layout(main.title = 'Percent of Votes for Democratic 2008', main.title.size = 1,legend.outside = TRUE)
+txplot2012 <- tm_shape(tx2012) +
+  tm_fill("won",palette = "PRGn",
+          title="Percent of Votes for Democratic 2012") +
+  tm_borders(alpha=.5) +
+  tm_layout(main.title = 'Percent of Votes for Democratic 2012', main.title.size = 1,legend.outside = TRUE)
+txplot2016 <- tm_shape(tx2016) +
+  tm_fill("won",palette = "PRGn",
+          title="Percent of Votes for Democratic 2016") +
+  tm_borders(alpha=.5) +
+  tm_layout(main.title = 'Percent of Votes for Democratic 2016', main.title.size = 1,legend.outside = TRUE)
+
+txplot_un_2008 <- tm_shape(tx2008) +
+  tm_fill("unemp_rate",palette = "RdBu",
+          title="Unemployment Rate 2008") +
+  tm_borders(alpha=.5) +
+  tm_layout(main.title = 'Unemployment Rate 2008', main.title.size = 1,legend.outside = TRUE)
+txplot_un_2012 <- tm_shape(tx2012) +
+  tm_fill("unemp_rate",palette = "RdBu",
+          title="Unemployment Rate 2012") +
+  tm_borders(alpha=.5) +
+  tm_layout(main.title = 'Unemployment Rate 2012', main.title.size = 1,legend.outside = TRUE)
+txplot_un_2016 <- tm_shape(tx2016) +
+  tm_fill("unemp_rate",palette = "RdBu",
+          title="Unemployment Rate 2016") +
+  tm_borders(alpha=.5) +
+  tm_layout(main.title = 'Unemployment Rate 2016', main.title.size = 1,legend.outside = TRUE)
+```
+
+#### Texas - Percent of Votes for Democratic and Unemployment Rate
+
+```{r}
+tmap_arrange(txplot2008,txplot_un_2008,
+             txplot2012,txplot_un_2012,
+             txplot2016,txplot_un_2016, 
+             ncol = 2, nrow = 3, widths = c(0.5,0.5), heights = c(0.33, 0.33, 0.33))
+```
+
+
+
+```{r}
+# subset by state CA
+ca2008 = subset(usmap2008, state=="California")
+ca2012 = subset(usmap2012, state=="California")
+ca2016 = subset(usmap2016, state=="California")
+
+tmap_mode("plot")
+caplot2008 <- tm_shape(ca2008) +
+  tm_fill("won",palette = "PRGn",
+          title="Percent of Votes for Democratic 2008") +
+  tm_borders(alpha=.5) +
+  tm_layout(main.title = 'Percent of Votes for Democratic 2008', main.title.size = 1,legend.outside = TRUE)
+caplot2012 <- tm_shape(ca2012) +
+  tm_fill("won",palette = "PRGn",
+          title="Percent of Votes for Democratic 2012") +
+  tm_borders(alpha=.5) +
+  tm_layout(main.title = 'Percent of Votes for Democratic 2012', main.title.size = 1,legend.outside = TRUE)
+caplot2016 <- tm_shape(ca2016) +
+  tm_fill("won",palette = "PRGn",
+          title="Percent of Votes for Democratic 2016") +
+  tm_borders(alpha=.5) +
+  tm_layout(main.title = 'Percent of Votes for Democratic 2016', main.title.size = 1,legend.outside = TRUE)
+
+caplot_un_2008 <- tm_shape(ca2008) +
+  tm_fill("unemp_rate",palette = "RdBu",
+          title="Unemployment Rate 2008") +
+  tm_borders(alpha=.5) +
+  tm_layout(main.title = 'Unemployment Rate 2008', main.title.size = 1,legend.outside = TRUE)
+caplot_un_2012 <- tm_shape(ca2012) +
+  tm_fill("unemp_rate",palette = "RdBu",
+          title="Unemployment Rate 2012") +
+  tm_borders(alpha=.5) +
+  tm_layout(main.title = 'Unemployment Rate 2012', main.title.size = 1,legend.outside = TRUE)
+caplot_un_2016 <- tm_shape(ca2016) +
+  tm_fill("unemp_rate",palette = "RdBu",
+          title="Unemployment Rate 2016") +
+  tm_borders(alpha=.5) +
+  tm_layout(main.title = 'Unemployment Rate 2016', main.title.size = 1,legend.outside = TRUE)
+```
+
+#### California - Percent of Votes for Democratic and Unemployment Rate
+
+```{r}
+tmap_arrange(caplot2008,caplot_un_2008, caplot2012,caplot_un_2012, caplot2016,caplot_un_2016, 
+             ncol = 2, nrow = 3, widths = c(0.5,0.5), heights = c(0.33, 0.33, 0.33))
+```
+
+```{r}
+# subset by state PA
+pa2008 = subset(usmap2008, state=="Pennsylvania")
+pa2012 = subset(usmap2012, state=="Pennsylvania")
+pa2016 = subset(usmap2016, state=="Pennsylvania")
+
+tmap_mode("plot")
+paplot2008 <- tm_shape(pa2008) +
+  tm_fill("won",palette = "PRGn",
+          title="Percent of Votes for Democratic 2008") +
+  tm_borders(alpha=.5) +
+  tm_layout(main.title = 'Percent of Votes for Democratic 2008', main.title.size = 1,legend.outside = TRUE)
+paplot2012 <- tm_shape(pa2012) +
+  tm_fill("won",palette = "PRGn",
+          title="Percent of Votes for Democratic 2012") +
+  tm_borders(alpha=.5) +
+  tm_layout(main.title = 'Percent of Votes for Democratic 2012', main.title.size = 1,legend.outside = TRUE)
+paplot2016 <- tm_shape(pa2016) +
+  tm_fill("won",palette = "PRGn",
+          title="Percent of Votes for Democratic 2016") +
+  tm_borders(alpha=.5) +
+  tm_layout(main.title = 'Percent of Votes for Democratic 2016', main.title.size = 1,legend.outside = TRUE)
+
+paplot_un_2008 <- tm_shape(pa2008) +
+  tm_fill("unemp_rate",palette = "RdBu",
+          title="Unemployment Rate 2008") +
+  tm_borders(alpha=.5) +
+  tm_layout(main.title = 'Unemployment Rate 2008', main.title.size = 1,legend.outside = TRUE)
+paplot_un_2012 <- tm_shape(pa2012) +
+  tm_fill("unemp_rate",palette = "RdBu",
+          title="Unemployment Rate 2012") +
+  tm_borders(alpha=.5) +
+  tm_layout(main.title = 'Unemployment Rate 2012', main.title.size = 1,legend.outside = TRUE)
+paplot_un_2016 <- tm_shape(pa2016) +
+  tm_fill("unemp_rate",palette = "RdBu",
+          title="Unemployment Rate 2016") +
+  tm_borders(alpha=.5) +
+  tm_layout(main.title = 'Unemployment Rate 2016', main.title.size = 1,legend.outside = TRUE)
+```
+
+#### Pennsylvania - Percent of Votes for Democratic and Unemployment Rate
+
+```{r}
+tmap_arrange(paplot2008,paplot_un_2008, paplot2012,paplot_un_2012, paplot2016,paplot_un_2016, 
+             ncol = 2, nrow = 3, widths = c(0.5,0.5), heights = c(0.33, 0.33, 0.33))
+```
+
